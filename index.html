@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Spark & Nova — Weekly Timetable ✨</title>
+<style>
+  :root{
+    --bg:#FFF8FF; --card:#fff; --accent:#FF9AC2; --accent2:#9AD9FF; --muted:#6e5873;
+    --slot:#FFF1F9; --radius:12px; --ui:system-ui, -apple-system, 'Segoe UI', Roboto, Arial;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:var(--ui);background:linear-gradient(180deg,#FFF8FF,#FFFEF8);color:#2b1f2b;display:flex;align-items:flex-start;justify-content:center;padding:18px}
+  .wrap{width:100%;max-width:1100px}
+  header{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+  .logo{width:56px;height:56px;border-radius:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900}
+  h1{margin:0;font-size:20px}
+  .app{display:grid;grid-template-columns:260px 1fr;gap:16px}
+  .panel{background:var(--card);border-radius:var(--radius);padding:14px;box-shadow:0 10px 30px rgba(120,100,130,0.06)}
+  .mini{font-size:13px;color:var(--muted)}
+
+  /* left controls */
+  .controls{display:flex;flex-direction:column;gap:10px}
+  label{font-size:13px;color:var(--muted)}
+  select,input{width:100%;padding:8px;border-radius:10px;border:1px solid rgba(0,0,0,0.06)}
+  .btn{padding:10px 12px;border-radius:12px;border:0;cursor:pointer;font-weight:700}
+  .btn-primary{background:linear-gradient(90deg,var(--accent),#FFD59A);color:#2b1430}
+  .btn-ghost{background:transparent;border:1px dashed rgba(43,33,48,0.06)}
+
+  /* timetable grid */
+  .grid-wrap{overflow:auto}
+  .timetable{display:grid;grid-template-columns:60px repeat(7,1fr);border-radius:8px;border:1px solid rgba(0,0,0,0.04);background:#fff}
+  .time-col{background:#fbfbfd;border-right:1px solid rgba(0,0,0,0.03)}
+  .day-col{min-height:720px;border-left:1px solid rgba(0,0,0,0.02);position:relative}
+  .hour{height:60px;border-bottom:1px dashed rgba(0,0,0,0.04);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)}
+  .day-header{padding:8px;border-bottom:1px solid rgba(0,0,0,0.04);text-align:center;font-weight:700}
+
+  .event{position:absolute;left:4px;right:4px;border-radius:8px;padding:6px 8px;color:#2b1430;font-weight:800;box-shadow:0 8px 18px rgba(0,0,0,0.06);cursor:pointer}
+  .event .small{font-size:12px;font-weight:600}
+
+  /* modal */
+  .modal{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(10,6,12,0.4);display:flex;align-items:center;justify-content:center}
+  .modal .panel{width:360px}
+
+  @media (max-width:980px){.app{grid-template-columns:1fr}.timetable{grid-template-columns:50px repeat(7,1fr)} }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">🗓️</div>
+      <div>
+        <h1>Weekly Timetable — Spark's Planner</h1>
+        <div class="mini">Add tasks for any day and time range. Events repeat weekly. Saved locally.</div>
+      </div>
+    </header>
+
+    <div class="app">
+      <div class="panel controls">
+        <div>
+          <label class="mini">Quick add</label>
+          <input id="quickTitle" placeholder="What will you do?" />
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <select id="quickDay">
+            <option value="0">Mon</option>
+            <option value="1">Tue</option>
+            <option value="2">Wed</option>
+            <option value="3">Thu</option>
+            <option value="4">Fri</option>
+            <option value="5">Sat</option>
+            <option value="6">Sun</option>
+          </select>
+          <input id="quickStart" type="time" value="15:00" />
+          <input id="quickEnd" type="time" value="16:00" />
+        </div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary" id="addQuickBtn">Add</button>
+          <button class="btn btn-ghost" id="clearBtn">Clear all</button>
+        </div>
+
+        <hr />
+        <div class="mini">Saved data</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn" id="exportBtn">Export JSON</button>
+          <button class="btn" id="importBtn">Import</button>
+        </div>
+        <textarea id="importArea" placeholder="Paste JSON here" style="width:100%;height:80px;margin-top:8px"></textarea>
+
+        <hr />
+        <div class="mini">Tips</div>
+        <div class="mini">Click a day/time area to add a detailed event. Tap an event to edit or delete.</div>
+      </div>
+
+      <div class="panel grid-wrap">
+        <div class="timetable" id="timetable"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- modal template -->
+  <template id="modalT">
+    <div class="modal">
+      <div class="panel">
+        <h3 id="mTitle">Add event</h3>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+          <label class="mini">Title</label>
+          <input id="evTitle" />
+          <div style="display:flex;gap:8px">
+            <div style="flex:1"><label class="mini">Day</label><select id="evDay"><option value="0">Mon</option><option value="1">Tue</option><option value="2">Wed</option><option value="3">Thu</option><option value="4">Fri</option><option value="5">Sat</option><option value="6">Sun</option></select></div>
+            <div style="flex:1"><label class="mini">Color</label><input id="evColor" type="color" value="#FFD59A" /></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <div style="flex:1"><label class="mini">Start</label><input id="evStart" type="time" /></div>
+            <div style="flex:1"><label class="mini">End</label><input id="evEnd" type="time" /></div>
+          </div>
+
+          <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">
+            <button class="btn btn-ghost" id="cancelEv">Cancel</button>
+            <button class="btn btn-primary" id="saveEv">Save</button>
+            <button class="btn" id="deleteEv" style="display:none;background:#ffb3b3">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+<script>
+// Weekly Timetable — single file
+// Data: events = [{id, title, day(0-6 Mon-Sun), startMinutes, endMinutes, color}]
+const LS_KEY = 'spark_weekly_timetable_v1';
+const HOURS_START = 6; // 6:00
+const HOURS_END = 22; // 22:00
+const HOUR_HEIGHT = 60; // px per hour when rendering
+
+let events = [];
+let editingEventId = null;
+
+const timetableEl = document.getElementById('timetable');
+const addQuickBtn = document.getElementById('addQuickBtn');
+const quickTitle = document.getElementById('quickTitle');
+const quickDay = document.getElementById('quickDay');
+const quickStart = document.getElementById('quickStart');
+const quickEnd = document.getElementById('quickEnd');
+const clearBtn = document.getElementById('clearBtn');
+const exportBtn = document.getElementById('exportBtn');
+const importBtn = document.getElementById('importBtn');
+const importArea = document.getElementById('importArea');
+
+function load(){
+  try{ const raw = localStorage.getItem(LS_KEY); if(raw) events = JSON.parse(raw); else { events = []; } } catch(e){ events = []; }
+}
+function save(){ localStorage.setItem(LS_KEY, JSON.stringify(events)); }
+
+function minutesFromTimeInput(t){ if(!t) return null; const [hh,mm] = t.split(':').map(Number); return hh*60 + mm; }
+function timeString(mins){ const hh = Math.floor(mins/60)%24; const mm = mins%60; return String(hh).padStart(2,'0')+':'+String(mm).padStart(2,'0'); }
+function uid(){ return Math.random().toString(36).slice(2,9); }
+
+function buildGrid(){
+  timetableEl.innerHTML = '';
+  // header row: empty corner + days
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  // first column: time labels
+  const timeCol = document.createElement('div'); timeCol.className='time-col'; timeCol.style.gridRow='1 / -1';
+  // create hour labels
+  const header = document.createElement('div'); header.className='day-header'; header.style.height='48px'; header.textContent=''; timetableEl.appendChild(document.createElement('div')); // corner empty cell
+  for(let d=0; d<7; d++){ const hd = document.createElement('div'); hd.className='day-header'; hd.textContent = days[d]; timetableEl.appendChild(hd); }
+
+  // time column and day columns container: we will append hour rows
+  // create container rows: HOURS_END - HOURS_START hours
+  const totalHours = HOURS_END - HOURS_START;
+  // left column of times
+  const timesCol = document.createElement('div'); timesCol.className='time-col'; timesCol.style.gridColumn='1'; timesCol.style.gridRow='2 / ' + (2 + totalHours);
+  // create hours
+  for(let h=HOURS_START; h<HOURS_END; h++){
+    const div = document.createElement('div'); div.className='hour'; div.textContent = (h%24)+':00'; timesCol.appendChild(div);
+  }
+  timetableEl.appendChild(timesCol);
+
+  // create day columns
+  for(let d=0; d<7; d++){
+    const col = document.createElement('div'); col.className='day-col'; col.style.gridColumn = (2 + d); col.style.gridRow = '2 / ' + (2 + totalHours);
+    // fill hour stripes (for click targets)
+    for(let h=HOURS_START; h<HOURS_END; h++){
+      const slot = document.createElement('div'); slot.className='hour'; slot.dataset.day = d; slot.dataset.hour = h; slot.addEventListener('click', onGridClick);
+      // clear text inside to keep it subtle
+      slot.textContent = '';
+      col.appendChild(slot);
+    }
+    timetableEl.appendChild(col);
+  }
+
+  renderEvents();
+}
+
+function onGridClick(e){
+  const day = Number(e.currentTarget.dataset.day);
+  const hour = Number(e.currentTarget.dataset.hour);
+  // default 1-hour event
+  openModal({day, start: hour*60, end: (hour+1)*60});
+}
+
+function renderEvents(){
+  // clear existing event elements
+  const cols = document.querySelectorAll('.day-col'); cols.forEach(c=>{ // remove children that are events
+    const toRemove = Array.from(c.querySelectorAll('.event')); toRemove.forEach(n=>n.remove());
+  });
+  // render each event
+  events.forEach(ev=>{
+    const col = document.querySelectorAll('.day-col')[ev.day]; if(!col) return;
+    const dayHeight = (HOURS_END - HOURS_START) * HOUR_HEIGHT; // px
+    const top = ((ev.startMinutes - HOURS_START*60)/60) * HOUR_HEIGHT; const height = Math.max(20, ((ev.endMinutes - ev.startMinutes)/60) * HOUR_HEIGHT - 6);
+
+    const el = document.createElement('div'); el.className='event'; el.style.top = top + 'px'; el.style.height = height + 'px'; el.style.background = ev.color || '#FFD59A'; el.dataset.id = ev.id;
+    el.innerHTML = `<div>${ev.title}</div><div class="small">${timeString(ev.startMinutes)} - ${timeString(ev.endMinutes)}</div>`;
+    el.addEventListener('click', (e)=>{ e.stopPropagation(); openModal(ev.id); });
+    col.appendChild(el);
+  });
+}
+
+function openModal(initial){
+  // initial can be id (edit) or object with {day,start,end}
+  const tpl = document.getElementById('modalT'); const copy = tpl.content.cloneNode(true); document.body.appendChild(copy);
+  const modal = document.querySelector('.modal'); const mTitle = modal.querySelector('#mTitle'); const evTitle = modal.querySelector('#evTitle'); const evDay = modal.querySelector('#evDay'); const evStart = modal.querySelector('#evStart'); const evEnd = modal.querySelector('#evEnd'); const evColor = modal.querySelector('#evColor'); const cancelEv = modal.querySelector('#cancelEv'); const saveEv = modal.querySelector('#saveEv'); const deleteEv = modal.querySelector('#deleteEv');
+
+  if(typeof initial === 'string'){
+    // edit existing
+    const ev = events.find(x=>x.id === initial); if(!ev) return; editingEventId = ev.id; mTitle.textContent = 'Edit event'; evTitle.value = ev.title; evDay.value = ev.day; evStart.value = timeString(ev.startMinutes); evEnd.value = timeString(ev.endMinutes); evColor.value = ev.color || '#FFD59A'; deleteEv.style.display='inline-block';
+  } else {
+    editingEventId = null; mTitle.textContent = 'Add event'; evTitle.value = '';
+    evDay.value = (initial && initial.day !== undefined) ? initial.day : 0;
+    evStart.value = timeString(initial && initial.start !== undefined ? initial.start : (HOURS_START*60));
+    evEnd.value = timeString(initial && initial.end !== undefined ? initial.end : ((HOURS_START+1)*60));
+    evColor.value = '#FFD59A'; deleteEv.style.display='none';
+  }
+
+  cancelEv.addEventListener('click', ()=>{ modal.remove(); editingEventId = null; });
+  saveEv.addEventListener('click', ()=>{
+    const title = evTitle.value.trim() || 'Untitled'; const day = Number(evDay.value); const startM = minutesFromTimeInput(evStart.value); const endM = minutesFromTimeInput(evEnd.value); const color = evColor.value;
+    if(endM <= startM){ alert('End must be after start'); return; }
+    if(editingEventId){ // update
+      const ev = events.find(x=>x.id===editingEventId); if(!ev) return; ev.title = title; ev.day = day; ev.startMinutes = startM; ev.endMinutes = endM; ev.color = color;
+    } else { // create
+      events.push({id: uid(), title, day, startMinutes: startM, endMinutes: endM, color});
+    }
+    save(); renderEvents(); modal.remove(); editingEventId = null;
+  });
+  deleteEv.addEventListener('click', ()=>{
+    if(!editingEventId) return; if(!confirm('Delete this event?')) return; events = events.filter(x=>x.id!==editingEventId); save(); renderEvents(); modal.remove(); editingEventId = null;
+  });
+}
+
+// quick add
+addQuickBtn.addEventListener('click', ()=>{
+  const title = quickTitle.value.trim() || 'Untitled'; const day = Number(quickDay.value); const s = minutesFromTimeInput(quickStart.value); const e = minutesFromTimeInput(quickEnd.value); if(e <= s){ alert('End must be after start'); return; }
+  events.push({id: uid(), title, day, startMinutes: s, endMinutes: e, color: '#FFD59A'}); save(); renderEvents(); quickTitle.value='';
+});
+
+clearBtn.addEventListener('click', ()=>{ if(!confirm('Clear all events?')) return; events = []; save(); renderEvents(); });
+
+exportBtn.addEventListener('click', ()=>{ const data = JSON.stringify(events, null, 2); const blob = new Blob([data], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'timetable.json'; a.click(); URL.revokeObjectURL(url); });
+
+importBtn.addEventListener('click', ()=>{
+  try{ const raw = importArea.value.trim(); if(!raw) return alert('Paste JSON into the box first'); const parsed = JSON.parse(raw); if(!Array.isArray(parsed)) return alert('Invalid format'); events = parsed.map(x=>({id: x.id || uid(), title: x.title||'Untitled', day: Number(x.day)||0, startMinutes: Number(x.startMinutes)||0, endMinutes: Number(x.endMinutes)||60, color: x.color||'#FFD59A'})); save(); renderEvents(); importArea.value=''; alert('Imported '+events.length+' events'); } catch(e){ alert('Invalid JSON'); }
+});
+
+// initial load
+load(); buildGrid();
+
+// expose for debugging
+window._timetable = {events, save, renderEvents};
+</script>
+</body>
+</html>
